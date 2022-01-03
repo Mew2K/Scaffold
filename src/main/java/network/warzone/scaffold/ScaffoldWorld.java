@@ -12,6 +12,7 @@ import org.bukkit.util.Vector;
 
 import java.io.File;
 import java.util.Optional;
+import java.util.ArrayList;
 
 @ToString(exclude = {"folder", "configFile"}) @Data
 public class ScaffoldWorld {
@@ -147,6 +148,19 @@ public class ScaffoldWorld {
             }
         }
         return new ScaffoldWorld(query);
+    }
+    
+    //Returns an ArrayList containing all worlds.
+    //MEW MADE THIS OMG
+    public static ArrayList<ScaffoldWorld> returnAllWorlds {
+        File[] files = new File("scaffold").listFiles();
+        ArrayList<ScaffoldWorld> list = new ArrayList<ScaffoldWorld>();
+        if (files != null) {
+            for (File file : files) {
+                list.add(new ScaffoldWorld(file.getName());
+            }
+        }
+        return list;
     }
 
 }
