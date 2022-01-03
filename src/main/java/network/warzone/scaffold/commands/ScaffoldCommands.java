@@ -168,8 +168,27 @@ public class ScaffoldCommands {
     @CommandPermissions("scaffold.command.close")
     @Command(aliases = "close", desc = "Close a world.", min = 1, max = 1, usage = "<world>")
     public static void close(CommandContext cmd, CommandSender sender) {
+        //Close all worlds
         if (cmd.getString(0).equals("*")) {
-            sender.sendMessage(ChatColor.GREEN + "Success.");
+            File scaffold = new File("scaffold");
+            if (scaffold.exists()) {
+                File[] content = scaffold.listFiles();
+                boolean unloaded = false;
+                if (contents != null) {
+                    for (File file : content) {
+                        ScaffoldWorld world = new ScaffoldWorld(file.getName());
+                        unloaded = world.unload()
+                        if (unloaded)
+                        {
+                            sender.sendMessage(ChatColor.GOLD + "Closed world \"" + wrapper.getName() + "\".");
+                        }
+                        else
+                        {
+                            sender.sendMessage(ChatColor.GOLD + "Failed to unload world \"" + wrapper.getName() + "\".");
+                        }
+                    }
+                }
+            }
             return;
         }
         
