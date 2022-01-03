@@ -168,6 +168,11 @@ public class ScaffoldCommands {
     @CommandPermissions("scaffold.command.close")
     @Command(aliases = "close", desc = "Close a world.", min = 1, max = 1, usage = "<world>")
     public static void close(CommandContext cmd, CommandSender sender) {
+        if (cmd.getString(0).equals("*")) {
+            sender.sendMessage(ChatColor.GREEN + "Success.");
+            return;
+        }
+        
         ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(cmd.getString(0));
 
         if (!sender.hasPermission("scaffold.command.close")) {
