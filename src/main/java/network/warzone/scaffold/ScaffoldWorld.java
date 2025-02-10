@@ -88,6 +88,10 @@ public class ScaffoldWorld {
         world.setGameRule(GameRule.DO_WEATHER_CYCLE, false);
         world.setGameRule(GameRule.LOG_ADMIN_COMMANDS, false);
         world.setGameRule(GameRule.RANDOM_TICK_SPEED, 0);
+        world.setGameRule(GameRule.DO_MOB_SPAWNING, false);
+        world.setGameRule(GameRule.DO_FIRE_TICK, false);
+        world.setGameRule(GameRule.MOB_GRIEFING, false);
+
 
         Vector min = new Vector(-1, 0, -1);
         Vector max = new Vector(1, 0, 1);
