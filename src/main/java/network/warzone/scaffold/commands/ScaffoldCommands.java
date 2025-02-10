@@ -16,6 +16,8 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -253,15 +255,6 @@ public class ScaffoldCommands implements CommandExecutor {
             wrapper.getWorld().get().save();
         }
 
-        FtpManager ftpManager = new FtpManager();
-        String username = ftpManager.getProperty("fileio_username");
-        String password = ftpManager.getProperty("fileio_password");
-
-        if (username == null || password == null) {
-            sender.sendMessage(ChatColor.RED + "API credentials are not set correctly.");
-            return true;
-        }
-
         Scaffold.get().async(() -> {
             sender.sendMessage(ChatColor.YELLOW + "Compressing world...");
             String randy = UUID.randomUUID().toString().substring(0, 3);
@@ -272,30 +265,75 @@ public class ScaffoldCommands implements CommandExecutor {
 
             try {
                 FileUtils.copyDirectory(originalFolder, tempCopy, file -> !file.getName().equals("session.lock"));
-
                 Zip.create(tempCopy, zip, prune);
 
-                sender.sendMessage(ChatColor.YELLOW + "Uploading world, this may take a while depending on the map size...");
-                HttpResponse<String> response = Unirest.post("https://file.io")
-                        .basicAuth(username, password)
+                sender.sendMessage(ChatColor.YELLOW + "Retrieving Gofile.io server...");
+                HttpResponse<String> serverResponse = Unirest.get("https://api.gofile.io/servers").asString();
+                String responseBody = serverResponse.getBody();
+
+                JSONObject serverJson;
+                try {
+                    serverJson = new JSONObject(responseBody);
+                } catch (JSONException e) {
+                    sender.sendMessage(ChatColor.RED + "Failed to parse Gofile.io response: see console.");
+                    System.out.println("Failed to parse Gofile.io response:" + responseBody);
+                    e.printStackTrace();
+                    return;
+                }
+
+                if (!serverJson.has("status") || !serverJson.getString("status").equals("ok")) {
+                    sender.sendMessage(ChatColor.RED + "Error retrieving Gofile.io server: see console.");
+                    System.out.println("Gofile.io API error: " + responseBody);
+                    return;
+                }
+
+                JSONArray servers = serverJson.getJSONObject("data").getJSONArray("servers");
+
+                // This may be unnecessary
+                if (servers.isEmpty()) {
+                    sender.sendMessage(ChatColor.RED + "Error retrieving Gofile.io server: see console (are they busy?).");
+                    System.out.println("No available servers: " + responseBody);
+                    return;
+                }
+
+                String server = servers.getJSONObject(0).getString("name");
+
+                // This may also be unnecessary
+                if (server == null || server.isEmpty()) {
+                    sender.sendMessage(ChatColor.RED + "Error retrieving Gofile.io server: see console.");
+                    System.out.println("Server name is empty or missing in API response: " + responseBody);
+                    return;
+                }
+
+                String uploadUrl = "https://" + server + ".gofile.io/contents/uploadfile";
+                System.out.println("Using GoFile.io server: " + server);
+                sender.sendMessage(ChatColor.YELLOW + "OK.");
+                sender.sendMessage(ChatColor.YELLOW + "Uploading world, this may take a while...");
+
+                HttpResponse<String> uploadResponse = Unirest.post(uploadUrl)
                         .field("file", zip)
                         .asString();
 
-                if (response.getStatus() == 200) {
-                    JSONObject responseJson = new JSONObject(response.getBody());
-                    String link = responseJson.getString("link");
-                    sender.sendMessage(ChatColor.GREEN + "Upload complete: " + link);
-                } else {
-                    sender.sendMessage(ChatColor.RED + "Failed to upload world: " + response.getStatusText());
-                }
+                String uploadResponseBody = uploadResponse.getBody();
+                JSONObject uploadJson;
                 try {
-                    if (!zip.delete()) {
-                        System.err.println("Failed to delete the zip file: " + zip.getAbsolutePath());
-                    }
-                } catch (SecurityException e) {
-                    System.err.println("SecurityException: Unable to delete the zip file (insufficient permissions?)");
+                    uploadJson = new JSONObject(uploadResponseBody);
+                } catch (JSONException e) {
+                    sender.sendMessage(ChatColor.RED + "Failed to parse Gofile.io upload response: " + uploadResponseBody);
                     e.printStackTrace();
+                    return;
                 }
+
+                if (!uploadJson.has("status") || !uploadJson.getString("status").equals("ok")) {
+                    sender.sendMessage(ChatColor.RED + "Failed to upload world: see console.");
+                    System.out.println("Upload failed: " + uploadResponseBody);
+                    return;
+                }
+
+                // Extract the download link from the response
+                String downloadLink = uploadJson.getJSONObject("data").getString("downloadPage");
+                sender.sendMessage(ChatColor.GREEN + "Upload complete: " + downloadLink);
+
             } catch (Exception e) {
                 e.printStackTrace();
                 sender.sendMessage(ChatColor.RED + "Failed to compress or upload the specified world.");

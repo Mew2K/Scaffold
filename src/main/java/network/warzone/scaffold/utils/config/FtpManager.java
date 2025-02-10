@@ -4,6 +4,8 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.Properties;
 
+// New file transfer service GoFile.io does not require API credentials, so this class is currently unused.
+@Deprecated
 public class FtpManager {
     private Properties properties;
     private String configPath = "plugins/Scaffold/config.properties";
