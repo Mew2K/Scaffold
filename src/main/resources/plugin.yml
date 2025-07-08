@@ -1,7 +1,7 @@
 name: Scaffold
 description: Manage a build server.
 main: network.warzone.scaffold.Scaffold
-version: ${project.version}
+version: ${project.version} (git-${git.commit.id.abbrev})
 authors: [Avicus, Minehut, Warzone]
 api-version: 1.13
 
