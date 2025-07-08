@@ -256,6 +256,8 @@ public class ScaffoldCommands implements CommandExecutor {
         }
 
         Scaffold.get().async(() -> {
+            wrapper.getWorld().get().save();
+
             sender.sendMessage(ChatColor.YELLOW + "Compressing world...");
             String randy = UUID.randomUUID().toString().substring(0, 3);
             File zip = new File(wrapper.getName() + "-" + randy + ".zip");
