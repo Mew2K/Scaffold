@@ -2,6 +2,7 @@ package network.warzone.scaffold;
 
 import com.google.common.base.Preconditions;
 import network.warzone.scaffold.commands.ScaffoldCommands;
+import org.apache.commons.io.FileUtils;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -19,12 +20,15 @@ public final class Scaffold extends JavaPlugin implements TabCompleter {
         return instance;
     }
 
+    public static String tempFolderPath;
+
     private Map<ScaffoldWorld, Long> locked = new HashMap<>();
 
     @Override
     public void onEnable() {
         instance = this;
         setupConfig();
+        setupTempFolder();
 
         ScaffoldCommands commandExecutor = new ScaffoldCommands();
         getCommand("lock").setExecutor(commandExecutor);
@@ -66,6 +70,18 @@ public final class Scaffold extends JavaPlugin implements TabCompleter {
         }
         locked.put(wrapper, wrapper.getWorld().get().getFullTime());
         return true;
+    }
+
+    private void setupTempFolder() {
+        try {
+            File tempFolder = new File(getDataFolder(), "temp");
+            tempFolder.mkdir();
+            FileUtils.cleanDirectory(tempFolder);
+            tempFolderPath = tempFolder.getAbsolutePath();
+        }
+        catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     public void setupConfig() {

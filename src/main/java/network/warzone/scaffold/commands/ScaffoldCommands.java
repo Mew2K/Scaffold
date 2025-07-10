@@ -265,10 +265,10 @@ public class ScaffoldCommands implements CommandExecutor {
         Scaffold.get().async(() -> {
             sender.sendMessage(ChatColor.YELLOW + "Compressing world...");
             String randy = UUID.randomUUID().toString().substring(0, 3);
-            File zip = new File(wrapper.getName() + "-" + randy + ".zip");
+            File zip = new File(Scaffold.tempFolderPath, wrapper.getName() + "-" + randy + ".zip");
 
             File originalFolder = wrapper.getFolder();
-            File tempCopy = new File("temp-" + wrapper.getName() + "-" + randy);
+            File tempCopy = new File(Scaffold.tempFolderPath,"temp-" + wrapper.getName() + "-" + randy);
 
             try {
                 FileUtils.copyDirectory(originalFolder, tempCopy, file -> !file.getName().equals("session.lock"));
@@ -347,6 +347,7 @@ public class ScaffoldCommands implements CommandExecutor {
             } finally {
                 try {
                     FileUtils.deleteDirectory(tempCopy);
+                    FileUtils.deleteQuietly(zip);
                 } catch (IOException e) {
                     System.err.println("Failed to delete temporary copy: " + tempCopy.getAbsolutePath());
                     e.printStackTrace();
