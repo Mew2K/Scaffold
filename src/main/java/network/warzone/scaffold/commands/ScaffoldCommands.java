@@ -251,13 +251,18 @@ public class ScaffoldCommands implements CommandExecutor {
             return true;
         }
 
-        if (wrapper.isOpen()) {
-            wrapper.getWorld().get().save();
+        if (!wrapper.isOpen()) {
+            sender.sendMessage(ChatColor.YELLOW + "World not open. Opening...");
+            wrapper.load();
+            sender.sendMessage(ChatColor.GOLD + "Opened world \"" + wrapper.getName() + "\".");
         }
 
-        Scaffold.get().async(() -> {
-            wrapper.getWorld().get().save();
+        wrapper.getWorld().ifPresentOrElse(
+                World::save,
+                () -> sender.sendMessage(ChatColor.RED + "Warning: World failed to save. You may need to manually save and retry.")
+        );
 
+        Scaffold.get().async(() -> {
             sender.sendMessage(ChatColor.YELLOW + "Compressing world...");
             String randy = UUID.randomUUID().toString().substring(0, 3);
             File zip = new File(wrapper.getName() + "-" + randy + ".zip");
