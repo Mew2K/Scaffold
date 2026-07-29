@@ -5,6 +5,7 @@ import com.mashape.unirest.http.HttpResponse;
 import com.mashape.unirest.http.Unirest;
 import network.warzone.scaffold.Scaffold;
 import network.warzone.scaffold.ScaffoldWorld;
+import network.warzone.scaffold.StandaloneWorldExporter;
 import network.warzone.scaffold.Zip;
 import network.warzone.scaffold.utils.config.Config;
 import org.apache.commons.io.FileUtils;
@@ -238,13 +239,15 @@ public class ScaffoldCommands implements CommandExecutor {
         args = removeFlags(args);
 
         if (args.length == 0) {
-            sender.sendMessage(ChatColor.RED + "Usage: /export <world>");
+            sender.sendMessage(ChatColor.RED + "Usage: /export [-r] <world>");
             return true;
         }
 
         ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(worldName(args));
         //TODO: Implement chunk pruning (this flag is currently unusued)
         boolean prune = flags.contains("-p");
+        boolean raw = flags.contains("-r");
+        boolean standalone = !raw;
 
         if (!wrapper.isCreated()) {
             sender.sendMessage(ChatColor.RED + "World not found.");
@@ -262,16 +265,28 @@ public class ScaffoldCommands implements CommandExecutor {
                 () -> sender.sendMessage(ChatColor.RED + "Warning: World failed to save. You may need to manually save and retry.")
         );
 
-        Scaffold.get().async(() -> {
-            sender.sendMessage(ChatColor.YELLOW + "Compressing world...");
-            String randy = UUID.randomUUID().toString().substring(0, 3);
-            File zip = new File(Scaffold.tempFolderPath, wrapper.getName() + "-" + randy + ".zip");
+        Optional<World> optionalWorld = wrapper.getWorld();
+        if (optionalWorld.isEmpty()) {
+            sender.sendMessage(ChatColor.RED + "Warning: World failed to load. You may need to manually save and retry.");
+            return true;
+        }
 
-            File originalFolder = wrapper.getFolder();
-            File tempCopy = new File(Scaffold.tempFolderPath,"temp-" + wrapper.getName() + "-" + randy);
+        StandaloneWorldExporter.Options standaloneOptions = standalone ? StandaloneWorldExporter.optionsFor(wrapper, optionalWorld.get()) : null;
+        File sourceLevelDat = Bukkit.getServer().getLevelDirectory().resolve("level.dat").toFile();
+
+        Scaffold.get().async(() -> {
+            sender.sendMessage(ChatColor.YELLOW + (standalone ? "Preparing standalone world..." : "Compressing raw Scaffold world..."));
+            String randy = UUID.randomUUID().toString().substring(0, 3);
+            File zip = new File(Scaffold.tempFolderPath, wrapper.getWorldName() + "-" + randy + (raw ? "-raw" : "") + ".zip");
+
+            File tempCopy = new File(Scaffold.tempFolderPath,"temp-" + wrapper.getWorldName() + "-" + randy);
 
             try {
-                FileUtils.copyDirectory(originalFolder, tempCopy, file -> !file.getName().equals("session.lock"));
+                if (standalone) {
+                    StandaloneWorldExporter.export(wrapper, standaloneOptions, sourceLevelDat, tempCopy);
+                } else {
+                    wrapper.copyTo(tempCopy);
+                }
                 Zip.create(tempCopy, zip, prune);
 
                 sender.sendMessage(ChatColor.YELLOW + "Retrieving Gofile.io server...");

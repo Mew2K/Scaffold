@@ -21,6 +21,6 @@ This project is a fork of Avicus Network's [Build Plugin](https://github.com/Avi
 | `/create [world name]`  | Create a new world.  | `scaffold.command.create`  |
 | `/open [world name]`  | Open a world.  | `scaffold.command.open`  |
 | `/close [world name]`  | Close a world.  | `scaffold.command.close`  |
-| `/export [world name]`  | Export a world.  | `scaffold.command.export`  |
+| `/export [-r] [world name]`  | Export a standalone world; use `-r` for the raw Scaffold world folder.  | `scaffold.command.export`  |
 | `/import <.zip file link> <world name>`  | Import a world.  | `scaffold.command.import`  |
 | `/worlds`  | Show all worlds.  | `scaffold.command.worlds`  |
