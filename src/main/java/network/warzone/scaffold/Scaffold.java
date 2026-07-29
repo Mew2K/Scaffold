@@ -72,6 +72,10 @@ public final class Scaffold extends JavaPlugin implements TabCompleter {
         return true;
     }
 
+    public void unlock(ScaffoldWorld wrapper) {
+        this.locked.keySet().removeIf(next -> next.getWorldName().equals(wrapper.getWorldName()));
+    }
+
     private void setupTempFolder() {
         try {
             File tempFolder = new File(getDataFolder(), "temp");

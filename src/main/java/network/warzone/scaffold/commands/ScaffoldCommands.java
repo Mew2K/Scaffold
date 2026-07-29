@@ -6,7 +6,7 @@ import com.mashape.unirest.http.Unirest;
 import network.warzone.scaffold.Scaffold;
 import network.warzone.scaffold.ScaffoldWorld;
 import network.warzone.scaffold.Zip;
-import network.warzone.scaffold.utils.config.FtpManager;
+import network.warzone.scaffold.utils.config.Config;
 import org.apache.commons.io.FileUtils;
 import org.bukkit.*;
 import org.bukkit.World.Environment;
@@ -31,19 +31,28 @@ public class ScaffoldCommands implements CommandExecutor {
 
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command cmd, @NotNull String label, String[] args) {
-        return switch (cmd.getName().toLowerCase()) {
-            case "lock" -> lock(sender, args);
-            case "archive" -> archive(sender, args);
-            case "create" -> create(sender, args);
-            case "open" -> open(sender, args);
-            case "world" -> open(sender, args);
-            case "close" -> close(sender, args);
-            case "export" -> export(sender, args);
-            case "import" -> download(sender, args);
-            case "worlds" -> worlds(sender, args);
+        try {
+            return switch (cmd.getName().toLowerCase()) {
+                case "lock" -> lock(sender, args);
+                case "archive" -> archive(sender, args);
+                case "create" -> create(sender, args);
+                case "open" -> open(sender, args);
+                case "world" -> open(sender, args);
+                case "close" -> close(sender, args);
+                case "export" -> export(sender, args);
+                case "import" -> download(sender, args);
+                case "worlds" -> worlds(sender, args);
 
-            default -> false;
-        };
+                default -> false;
+            };
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            sender.sendMessage(ChatColor.RED + e.getMessage());
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            sender.sendMessage(ChatColor.RED + "An error has occurred. See the server logs.");
+            return true;
+        }
     }
 
     private boolean lock(CommandSender sender, String[] args) {
@@ -57,8 +66,7 @@ public class ScaffoldCommands implements CommandExecutor {
             return true;
         }
 
-        String worldName = args[0];
-        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(worldName);
+        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(worldName(args));
 
         if (!wrapper.isCreated()) {
             sender.sendMessage(ChatColor.RED + "World not found.");
@@ -85,34 +93,37 @@ public class ScaffoldCommands implements CommandExecutor {
         args = removeFlags(args);
 
         if (args.length == 0) {
-            sender.sendMessage(ChatColor.RED + "Usage: /archive <world>");
+            sender.sendMessage(ChatColor.RED + "Usage: /archive [-k] <world>");
             return true;
         }
 
-        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(args[0]);
-        boolean delete = flags.contains("-k");
+        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(worldName(args));
+        boolean keep = flags.contains("-k");
 
         if (!wrapper.isCreated()) {
             sender.sendMessage(ChatColor.RED + "World has not been created.");
             return true;
         }
 
-        if (wrapper.isOpen() && delete) {
-            sender.sendMessage(ChatColor.RED + "World must be closed to archive and delete.");
-            return true;
+        if (wrapper.isOpen()) {
+            sender.sendMessage(ChatColor.YELLOW + "Closing world before archiving...");
+            if (!unloadWorld(sender, wrapper)) {
+                sender.sendMessage(ChatColor.RED + "Failed to close world before archiving.");
+                return true;
+            }
         }
 
-        File folder = wrapper.getFolder();
         File archives = new File("scaffold-archives");
         String unique = UUID.randomUUID().toString().substring(0, 6);
-        File archive = new File(archives, folder.getName() + "-" + unique);
-
-        if (!archives.exists()) archives.mkdir();
+        File archive = new File(archives, wrapper.getWorldName() + "-" + unique);
 
         try {
-            FileUtils.copyDirectory(folder, archive);
-            if (delete) FileUtils.deleteDirectory(folder);
-            sender.sendMessage(ChatColor.GOLD + (delete ? "Deleted and archived \"" + wrapper.getName() + "\"." : "Archived \"" + wrapper.getName() + "\"."));
+            FileUtils.forceMkdir(archives);
+            wrapper.copyTo(archive);
+            if (!keep) {
+                wrapper.delete();
+            }
+            sender.sendMessage(ChatColor.GOLD + (keep ? "Archived \"" + wrapper.getName() + "\"." : "Deleted and archived \"" + wrapper.getName() + "\"."));
         } catch (IOException e) {
             e.printStackTrace();
             sender.sendMessage(ChatColor.RED + "An error has occurred. See the server logs.");
@@ -132,7 +143,7 @@ public class ScaffoldCommands implements CommandExecutor {
         }
 
 
-        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(args[0]);
+        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(worldName(args));
         if (wrapper.isCreated()) {
             sender.sendMessage(ChatColor.RED + "World already created.");
             return true;
@@ -162,7 +173,7 @@ public class ScaffoldCommands implements CommandExecutor {
             return true;
         }
 
-        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(args[0]);
+        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(worldName(args));
         if (!wrapper.isCreated()) {
             sender.sendMessage(ChatColor.RED + "World has not been created.");
             return true;
@@ -201,7 +212,7 @@ public class ScaffoldCommands implements CommandExecutor {
             return true;
         }
 
-        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(args[0]);
+        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(worldName(args));
         if (!wrapper.isCreated()) {
             sender.sendMessage(ChatColor.RED + "World has not been created.");
             return true;
@@ -212,17 +223,7 @@ public class ScaffoldCommands implements CommandExecutor {
             return true;
         }
 
-        World main = Bukkit.getWorlds().getFirst();
-        for (Entity entity : wrapper.getWorld().get().getEntities()) {
-            if (entity instanceof Player player) {
-                player.sendMessage(ChatColor.RED + sender.getName() + " is unloading this world... Teleporting elsewhere!");
-                player.teleport(main.getSpawnLocation());
-            }
-        }
-
-        wrapper.getWorld().get().save();
-
-        boolean unloaded = wrapper.unload();
+        boolean unloaded = unloadWorld(sender, wrapper);
         sender.sendMessage(ChatColor.GOLD + (unloaded ? "Closed world \"" + wrapper.getName() + "\"." : "Failed to unload world \"" + wrapper.getName() + "\"."));
         return true;
     }
@@ -241,8 +242,7 @@ public class ScaffoldCommands implements CommandExecutor {
             return true;
         }
 
-        String worldName = args[0];
-        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(worldName);
+        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(worldName(args));
         //TODO: Implement chunk pruning (this flag is currently unusued)
         boolean prune = flags.contains("-p");
 
@@ -258,7 +258,7 @@ public class ScaffoldCommands implements CommandExecutor {
         }
 
         wrapper.getWorld().ifPresentOrElse(
-                World::save,
+                world -> world.save(true),
                 () -> sender.sendMessage(ChatColor.RED + "Warning: World failed to save. You may need to manually save and retry.")
         );
 
@@ -369,7 +369,7 @@ public class ScaffoldCommands implements CommandExecutor {
         }
 
         String link = args[0];
-        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(args[1]);
+        ScaffoldWorld wrapper = ScaffoldWorld.ofSearch(worldName(Arrays.copyOfRange(args, 1, args.length)));
 
         if (wrapper.isCreated()) {
             sender.sendMessage(ChatColor.RED + "World already created.");
@@ -387,12 +387,17 @@ public class ScaffoldCommands implements CommandExecutor {
             Zip.extract(tempZip, wrapper.getFolder());
             FileUtils.forceDelete(tempZip);
 
-            if (!wrapper.isCreated()) {
-                sender.sendMessage(ChatColor.RED + "Invalid zipped world, no level.dat in root?");
+            if (!wrapper.hasWorldData()) {
+                sender.sendMessage(ChatColor.RED + "Invalid zipped world, no world data found.");
                 FileUtils.deleteDirectory(wrapper.getFolder());
                 return true;
             }
 
+            Config config = wrapper.getConfig().orElse(new Config());
+            WorldType type = WorldType.valueOf(config.getAsString("type", WorldType.FLAT.name()).toUpperCase());
+            Environment env = Environment.valueOf(config.getAsString("environment", Environment.NORMAL.name()).toUpperCase());
+            long seed = config.getLong("seed", ThreadLocalRandom.current().nextInt(500000000));
+            wrapper.saveConfig(type, env, seed);
             wrapper.load();
             sender.sendMessage(ChatColor.GOLD + "World imported and opened!");
         } catch (Exception e) {
@@ -444,6 +449,40 @@ public class ScaffoldCommands implements CommandExecutor {
         return true;
     }
 
+    private boolean unloadWorld(CommandSender sender, ScaffoldWorld wrapper) {
+        Optional<World> optionalWorld = wrapper.getWorld();
+        if (optionalWorld.isEmpty()) {
+            return false;
+        }
+
+        World world = optionalWorld.get();
+        Optional<World> fallbackWorld = Bukkit.getWorlds().stream()
+                .filter(candidate -> !candidate.equals(world))
+                .findFirst();
+
+        if (fallbackWorld.isEmpty()) {
+            sender.sendMessage(ChatColor.RED + "Cannot unload the only loaded world.");
+            return false;
+        }
+
+        for (Entity entity : world.getEntities()) {
+            if (entity instanceof Player player) {
+                player.sendMessage(ChatColor.RED + sender.getName() + " is unloading this world... Teleporting elsewhere!");
+                player.teleport(fallbackWorld.get().getSpawnLocation());
+            }
+        }
+
+        return wrapper.unload();
+    }
+
+    private String worldName(String[] args) {
+        String name = String.join(" ", args).trim();
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("World name cannot be empty.");
+        }
+        return name;
+    }
+
     private Set<String> getFlags(String[] args) {
         Set<String> flags = new HashSet<>();
 
@@ -451,7 +490,7 @@ public class ScaffoldCommands implements CommandExecutor {
             if (arg.startsWith("-")) {
                 // Handle combined flags (ex: "-ktf" becomes "-k", "-t", "-f")
                 // Also limit max combined flag to 10 (software security!)
-                for (int i = 1; i < arg.length() || i == 10; i++) {
+                for (int i = 1; i < arg.length() && i <= 10; i++) {
                     flags.add("-" + arg.charAt(i));
                 }
             }

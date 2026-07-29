@@ -17,7 +17,7 @@ This project is a fork of Avicus Network's [Build Plugin](https://github.com/Avi
 | Command       | Description   | Permission Node |
 | ------------- | ------------- | ------------- |
 | `/lock`  | Lock a world at this time.  | `scaffold.command.lock`  |
-| `/archive -k`  | Archive and delete a world (use -k to keep).  | `scaffold.command.archive`  |
+| `/archive [-k] [world name]`  | Archive and delete a world; use `-k` to keep the original.  | `scaffold.command.archive`  |
 | `/create [world name]`  | Create a new world.  | `scaffold.command.create`  |
 | `/open [world name]`  | Open a world.  | `scaffold.command.open`  |
 | `/close [world name]`  | Close a world.  | `scaffold.command.close`  |

@@ -9,11 +9,13 @@ import org.bukkit.World.Environment;
 import org.bukkit.util.Vector;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.*;
 
 public class ScaffoldWorld {
 
     private static final String WORLD_PREFIX = "scaffold_";
+    private static final Map<String, Integer> AUTO_SAVE_TASKS = new HashMap<>();
 
     private final String name;
     private final String worldName;
@@ -79,18 +81,18 @@ public class ScaffoldWorld {
     }
 
     public boolean isCreated() {
-        return isOpen() || this.folder.exists() && new File(this.folder, "level.dat").exists();
+        return isOpen() || this.configFile.exists() || this.legacyConfigFile.exists() && hasWorldData();
+    }
+
+    public boolean hasWorldData() {
+        return hasWorldData(this.folder);
     }
 
     public World create(WorldType type, Environment env, long seed) {
         Preconditions.checkArgument(!isOpen(), "World already loaded.");
         Preconditions.checkArgument(!isCreated(), "World already created.");
 
-        Config config = new Config();
-        config.set("name", this.name);
-        config.set("type", type.name());
-        config.set("environment", env.name());
-        config.set("seed", seed);
+        Config config = createConfig(type, env, seed);
 
         WorldCreator creator = worldCreator(Optional.of(config));
         World world = creator.createWorld();
@@ -126,6 +128,10 @@ public class ScaffoldWorld {
         return world;
     }
 
+    public void saveConfig(WorldType type, Environment env, long seed) {
+        createConfig(type, env, seed).save(this.configFile);
+    }
+
     public World load() {
         Preconditions.checkArgument(!isOpen(), "World already loaded.");
         Preconditions.checkArgument(isCreated(), "World is not created.");
@@ -154,9 +160,31 @@ public class ScaffoldWorld {
         Preconditions.checkArgument(isCreated(), "World is not created.");
 
         World world = getWorld().get();
-        world.save();
-        cancelAutoSaveTask();
-        return Bukkit.unloadWorld(world, true);
+        world.save(true);
+        boolean unloaded = Bukkit.unloadWorld(world, true);
+        if (unloaded) {
+            cancelAutoSaveTask();
+            Scaffold.get().unlock(this);
+        }
+        return unloaded;
+    }
+
+    public void copyTo(File destination) throws IOException {
+        FileUtils.copyDirectory(this.folder, destination, file -> !file.getName().equals("session.lock"));
+    }
+
+    public void delete() throws IOException {
+        if (isOpen() && !unload()) {
+            throw new IOException("unable to unload world before deletion");
+        }
+
+        if (this.folder.exists()) {
+            FileUtils.deleteDirectory(this.folder);
+        }
+
+        if (this.legacyFolder.exists()) {
+            FileUtils.deleteDirectory(this.legacyFolder);
+        }
     }
 
     private WorldCreator worldCreator(Optional<Config> config) {
@@ -178,7 +206,7 @@ public class ScaffoldWorld {
         if (!world.getName().startsWith(WORLD_PREFIX))
             return Optional.empty();
 
-        return Optional.of(new ScaffoldWorld(nameFromWorldName(world.getName())));
+        return Optional.of(withConfiguredName(new ScaffoldWorld(nameFromWorldName(world.getName()))));
     }
 
     public static ScaffoldWorld ofSearch(String query) {
@@ -218,13 +246,27 @@ public class ScaffoldWorld {
         }
 
         ScaffoldWorld world = new ScaffoldWorld(nameFromWorldName(folder.getName()));
-        Optional<Config> config = world.getConfig();
-        String configuredName = config.map(value -> value.getAsString("name")).orElse(null);
-        if (configuredName != null && !configuredName.isBlank()) {
-            world = new ScaffoldWorld(configuredName);
-        }
+        world = withConfiguredName(world);
 
         return world.isCreated() ? Optional.of(world) : Optional.empty();
+    }
+
+    private static ScaffoldWorld withConfiguredName(ScaffoldWorld world) {
+        Optional<Config> config = world.getConfig();
+        String configuredName = config.map(value -> value.getAsString("name")).orElse(null);
+        if (configuredName != null && !configuredName.isBlank() && toWorldName(configuredName).equals(world.getWorldName())) {
+            return new ScaffoldWorld(configuredName);
+        }
+        return world;
+    }
+
+    private Config createConfig(WorldType type, Environment env, long seed) {
+        Config config = new Config();
+        config.set("name", this.name);
+        config.set("type", type.name());
+        config.set("environment", env.name());
+        config.set("seed", seed);
+        return config;
     }
 
     private static String toWorldName(String name) {
@@ -250,6 +292,11 @@ public class ScaffoldWorld {
                 .resolve("dimensions")
                 .resolve(namespace)
                 .toFile();
+    }
+
+    private static boolean hasWorldData(File folder) {
+        File[] contents = folder.listFiles(file -> !file.getName().equals("scaffold.yml"));
+        return contents != null && contents.length > 0;
     }
 
     private static String nameFromWorldName(String worldName) {
@@ -279,6 +326,8 @@ public class ScaffoldWorld {
 
     // Schedule an async repeating task every 5 minutes (5 * 60 * 20 ticks)
     private void startAutoSaveTask() {
+        cancelAutoSaveTask();
+
         this.taskID = Bukkit.getScheduler().scheduleSyncRepeatingTask(
                 Scaffold.get(),
                 () -> Scaffold.get().async(() -> {
@@ -291,12 +340,18 @@ public class ScaffoldWorld {
                 0L,
                 5 * 60 * 20L
         );
+        AUTO_SAVE_TASKS.put(this.worldName, this.taskID);
     }
 
     private void cancelAutoSaveTask() {
-        if (taskID != -1) {
-            Bukkit.getScheduler().cancelTask(taskID);
-            taskID = -1;
+        Integer existingTaskID = AUTO_SAVE_TASKS.remove(this.worldName);
+        if (existingTaskID != null) {
+            Bukkit.getScheduler().cancelTask(existingTaskID);
         }
+
+        if (this.taskID != -1 && !Objects.equals(existingTaskID, this.taskID)) {
+            Bukkit.getScheduler().cancelTask(this.taskID);
+        }
+        this.taskID = -1;
     }
 }
