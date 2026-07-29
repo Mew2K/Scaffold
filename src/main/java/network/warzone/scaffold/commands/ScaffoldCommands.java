@@ -297,7 +297,7 @@ public class ScaffoldCommands implements CommandExecutor {
                 JSONArray servers = serverJson.getJSONObject("data").getJSONArray("servers");
 
                 // This may be unnecessary
-                if (servers.isEmpty()) {
+                if (servers.length() == 0) {
                     sender.sendMessage(ChatColor.RED + "Error retrieving Gofile.io server: see console (are they busy?).");
                     System.out.println("No available servers: " + responseBody);
                     return;
@@ -411,20 +411,7 @@ public class ScaffoldCommands implements CommandExecutor {
         Set<String> flags = getFlags(args);
         args = removeFlags(args);
 
-        List<ScaffoldWorld> allWorlds = new ArrayList<>();
-        File scaffoldFolder = new File("scaffold");
-
-        if (scaffoldFolder.exists()) {
-            File[] contents = scaffoldFolder.listFiles();
-            if (contents != null) {
-                for (File folder : contents) {
-                    ScaffoldWorld world = new ScaffoldWorld(folder.getName());
-                    if (world.isCreated()) {
-                        allWorlds.add(world);
-                    }
-                }
-            }
-        }
+        List<ScaffoldWorld> allWorlds = ScaffoldWorld.all();
 
         allWorlds.sort(Comparator.comparing(ScaffoldWorld::getName));
         String prefix = "Worlds";

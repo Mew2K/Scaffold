@@ -38,6 +38,11 @@ public class Config {
     }
 
     public void save(File file) {
+        File parent = file.getParentFile();
+        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+            throw new ConfigException("unable to create config directory: " + parent);
+        }
+
         try (FileWriter writer = new FileWriter(file)) {
             yaml.dump(this.data, writer);
         } catch (IOException e) {

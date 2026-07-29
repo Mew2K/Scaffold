@@ -9,22 +9,31 @@ import org.bukkit.World.Environment;
 import org.bukkit.util.Vector;
 
 import java.io.File;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 
 public class ScaffoldWorld {
 
+    private static final String WORLD_PREFIX = "scaffold_";
+
     private final String name;
     private final String worldName;
+    private final NamespacedKey worldKey;
     private final File folder;
+    private final File legacyFolder;
     private final File configFile;
+    private final File legacyConfigFile;
     private int taskID = -1;
 
     public ScaffoldWorld(String name) {
-        this.name = name;
-        this.worldName = "scaffold/" + this.name;
-        this.folder = new File(this.worldName);
+        this.name = name.trim();
+        Preconditions.checkArgument(!this.name.isEmpty(), "World name cannot be empty.");
+
+        this.worldName = toWorldName(this.name);
+        this.worldKey = NamespacedKey.minecraft(this.worldName);
+        this.folder = worldFolder(this.worldKey);
+        this.legacyFolder = new File(Bukkit.getWorldContainer(), this.worldName);
         this.configFile = new File(this.folder, "scaffold.yml");
+        this.legacyConfigFile = new File(this.legacyFolder, "scaffold.yml");
     }
 
     public String getName() {
@@ -44,13 +53,20 @@ public class ScaffoldWorld {
     }
 
     public Optional<World> getWorld() {
-        return Optional.ofNullable(Bukkit.getWorld(this.worldName));
+        return Optional.ofNullable(Bukkit.getWorld(this.worldKey));
     }
 
     public Optional<Config> getConfig() {
         try {
             if (this.configFile.exists())
                 return Optional.of(new ConfigFile(this.configFile));
+            if (this.legacyConfigFile.exists()) {
+                Config config = new ConfigFile(this.legacyConfigFile);
+                if (isCreated()) {
+                    config.save(this.configFile);
+                }
+                return Optional.of(config);
+            }
             return Optional.empty();
         } catch (Exception e) {
             e.printStackTrace();
@@ -63,7 +79,7 @@ public class ScaffoldWorld {
     }
 
     public boolean isCreated() {
-        return this.folder.exists() && new File(this.folder, "level.dat").exists();
+        return isOpen() || this.folder.exists() && new File(this.folder, "level.dat").exists();
     }
 
     public World create(WorldType type, Environment env, long seed) {
@@ -71,15 +87,17 @@ public class ScaffoldWorld {
         Preconditions.checkArgument(!isCreated(), "World already created.");
 
         Config config = new Config();
+        config.set("name", this.name);
         config.set("type", type.name());
         config.set("environment", env.name());
         config.set("seed", seed);
 
         WorldCreator creator = worldCreator(Optional.of(config));
         World world = creator.createWorld();
+        Preconditions.checkState(world != null, "World failed to create.");
+
         world.setSpawnLocation(0, 3, 0);
         world.setAutoSave(true);
-        world.save();
 
         world.setGameRule(GameRules.SHOW_ADVANCEMENT_MESSAGES, false);
         world.setGameRule(GameRules.COMMAND_BLOCK_OUTPUT, false);
@@ -101,7 +119,9 @@ public class ScaffoldWorld {
                 for (int z = min.getBlockZ(); z <= max.getBlockZ(); z++)
                     world.getBlockAt(x, y, z).setType(Material.GLASS);
 
+        world.save(true);
         config.save(this.configFile);
+        startAutoSaveTask();
 
         return world;
     }
@@ -113,6 +133,8 @@ public class ScaffoldWorld {
         Optional<Config> config = getConfig();
         WorldCreator creator = worldCreator(config);
         World world = creator.createWorld();
+        Preconditions.checkState(world != null, "World failed to load.");
+
         world.setAutoSave(true);
         startAutoSaveTask();
         return world;
@@ -138,7 +160,7 @@ public class ScaffoldWorld {
     }
 
     private WorldCreator worldCreator(Optional<Config> config) {
-        WorldCreator creator = new WorldCreator(this.worldName);
+        WorldCreator creator = WorldCreator.ofKey(this.worldKey);
         creator.generator(new NullChunkGenerator());
         if (config.isPresent()) {
             WorldType type = WorldType.valueOf(config.get().getAsString("type").toUpperCase());
@@ -153,22 +175,85 @@ public class ScaffoldWorld {
     }
 
     public static Optional<ScaffoldWorld> ofWorld(World world) {
-        if (!world.getName().startsWith("scaffold/"))
+        if (!world.getName().startsWith(WORLD_PREFIX))
             return Optional.empty();
 
-        return Optional.of(new ScaffoldWorld(world.getName().replace("scaffold/", "")));
+        return Optional.of(new ScaffoldWorld(nameFromWorldName(world.getName())));
     }
 
     public static ScaffoldWorld ofSearch(String query) {
-        File[] files = new File("scaffold").listFiles();
-        if (files != null) {
-            for (File file : files) {
-                if (file.getName().equalsIgnoreCase(query)) {
-                    return new ScaffoldWorld(file.getName());
-                }
+        ScaffoldWorld direct = new ScaffoldWorld(query);
+        if (direct.isCreated() || direct.configFile.exists() || direct.legacyConfigFile.exists()) {
+            return direct;
+        }
+
+        for (ScaffoldWorld world : all()) {
+            if (world.getName().equalsIgnoreCase(query) || world.getWorldName().equalsIgnoreCase(query)) {
+                return world;
             }
         }
-        return new ScaffoldWorld(query);
+        return direct;
+    }
+
+    public static List<ScaffoldWorld> all() {
+        Map<String, ScaffoldWorld> worlds = new LinkedHashMap<>();
+
+        File[] files = namespaceFolder(NamespacedKey.MINECRAFT).listFiles();
+        if (files != null) {
+            for (File file : files) {
+                ofFolder(file).ifPresent(world -> worlds.put(world.getWorldName(), world));
+            }
+        }
+
+        for (World world : Bukkit.getWorlds()) {
+            ofWorld(world).ifPresent(wrapper -> worlds.put(wrapper.getWorldName(), wrapper));
+        }
+
+        return new ArrayList<>(worlds.values());
+    }
+
+    private static Optional<ScaffoldWorld> ofFolder(File folder) {
+        if (!folder.isDirectory() || !folder.getName().startsWith(WORLD_PREFIX)) {
+            return Optional.empty();
+        }
+
+        ScaffoldWorld world = new ScaffoldWorld(nameFromWorldName(folder.getName()));
+        Optional<Config> config = world.getConfig();
+        String configuredName = config.map(value -> value.getAsString("name")).orElse(null);
+        if (configuredName != null && !configuredName.isBlank()) {
+            world = new ScaffoldWorld(configuredName);
+        }
+
+        return world.isCreated() ? Optional.of(world) : Optional.empty();
+    }
+
+    private static String toWorldName(String name) {
+        String safeName = name.trim()
+                .toLowerCase(Locale.ENGLISH)
+                .replaceAll("[^a-z0-9._-]", "_")
+                .replaceAll("_+", "_");
+
+        Preconditions.checkArgument(!safeName.isEmpty(), "World name must contain at least one valid character.");
+        return WORLD_PREFIX + safeName;
+    }
+
+    private static File worldFolder(NamespacedKey worldKey) {
+        return Bukkit.getServer().getLevelDirectory()
+                .resolve("dimensions")
+                .resolve(worldKey.getNamespace())
+                .resolve(worldKey.getKey())
+                .toFile();
+    }
+
+    private static File namespaceFolder(String namespace) {
+        return Bukkit.getServer().getLevelDirectory()
+                .resolve("dimensions")
+                .resolve(namespace)
+                .toFile();
+    }
+
+    private static String nameFromWorldName(String worldName) {
+        return worldName.substring(WORLD_PREFIX.length());
     }
 
     @Override
